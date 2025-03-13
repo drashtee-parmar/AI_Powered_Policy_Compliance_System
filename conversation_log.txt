@@ -94,3 +94,53 @@ A: Based on Policy 1: Cardholder Agreement Terms, if a payment is late, the card
 On the other hand, Policy 6: Foreign Transaction Fees and Currency Conversion Policy states that cash withdrawals from foreign ATMs begin accruing interest immediately at an APR of 24.99%. There is no grace period for cash advances in foreign countries.
 So, the exact interest that would be applied would be dependent on the type of transaction (purchase or cash advance) and whether any payments have been missed.
 ---
+Q: can you please find out what will be the charges for late fees
+A: Based on the policies provided, the charges for late fees would be as mentioned in the "Cardholder Agreement Terms" policy. Specifically, Section 3: Billing and Payments, states that if a cardholder fails to make the minimum payment by the due date, a late fee of $39 is applied.
+---
+Q: and what will be the percentage of the charges
+A: Based on the provided policies, the foreign transaction fee is 3% of the total transaction amount. When making cash withdrawals from an ATM outside the cardholder's home country, a $5 fixed fee applies in addition to the 3% foreign transaction fee. The interest rate on such cash withdrawals is 24.99% APR, which begins to accrue immediately with no grace period. 
+
+For the Cardholder Agreement Terms policy, a standard APR for purchases is 19.99%, and an APR of 24.99% applies to cash advances which accrue immediately after the transaction. There is a penalty APR of 29.99% in case two consecutive payments are missed, which returns to the standard APR after six consecutive on-time payments. 
+
+For the Promotional offers and Balance Transfers policy, new cardholders are eligible for a 0% APR on all purchases made within the first 12 months of account opening, after which the rate reverts to the standard 19.99%. A 0% APR applies to balance transfers made within the first 60 days of account opening for the first 18 months, after which the APR reverts to 17.99%. There's a promotional offer on balance transfers subject to a fee of 3% of each transferred amount. 
+
+Please note that these percentages can vary depending upon conditions, specific exceptions, or promotional periods as outlined in the detailed policies.
+---
+You asked: information
+Relevant Policy: 6. Foreign Transaction Fees and Currency Conversion Policy.docx
+AI Response: 1. A 3% transaction fee is applied on all purchases made with foreign currency or outside the cardholder’s home country.
+2. This fee gets added to the cardholder’s statement in their local currency.
+3. Certain types of cards such as premium travel cards may be exempted from foreign transaction fees.
+4. Transactions made in foreign currency are automatically converted to the cardholder’s local currency using the prevailing exchange rate.
+5. Fee for cash withdrawals from an ATM outside the cardholder’s home country is a $5 fixed fee in addition to the 3% foreign transaction fee.
+6. Interest on cash withdrawals from foreign ATMs accrues immediately at 24.99% APR with no grace period.
+7. In case a foreign purchase is refunded, the refund uses the exchange rate at the time of refund, not the original transaction rate.
+8. There's a Dynamic Currency Conversion (DCC) feature that offers cardholders the choice to accept foreign currency conversion at the point of sale.
+9. Issuer suggests declining DCC, as the exchange rate applied by the merchant might be higher, hence costlier.
+10. Cardholders are asked to notify the issuer of their travel plans to prevent card suspension due to suspicion.
+11. Discrepancies in foreign transactions must be reported within 60 days from the statement date, with transaction receipts and other relevant documents.
+12. For foreign transaction disputes, issuer will investigate and contact the merchant if required and a provisional credit issued during this investigation process may become permanent if the dispute is resolved in favor of the cardholder.
+13. Daily spending and cash withdrawal limits apply for foreign purchases.
+14. The issuer reserves the right to change foreign transaction fees or currency conversion processes with 60 days’ notice.
+15. Cardholders have the option to opt-out of amendments to the foreign transaction policy within the 60-day notice period, but that would result in termination of the foreign transaction privileges. They can continue to use the card for domestic transactions.
+You asked: please provide information for how much credit card credit card charges has been applied
+Relevant Policy: 1. Cardholder Agreement Terms.docx
+AI Response: Based on Policy 1: Cardholder Agreement Terms:
+
+- The standard Annual Percentage Rate (APR) for purchases is 19.99%, applied to any unpaid balance after the billing cycle ends.
+- A higher APR of 24.99% applies to cash advances, and this rate begins accruing interest immediately after the transaction.
+- If a cardholder misses two consecutive payments, the penalty APR will increase to 29.99%. 
+- The card comes with an annual fee of $95, except during promotional periods when this fee may be waived for the first year.
+- Exceeding the credit limit incurs a $35 over-limit penalty for each instance.
+- For cash advances, a fee of 5% of the cash advance amount or $10, whichever is higher, is applied.
+- If the cardholder fails to make the minimum payment by the due date, a late fee of $39 is applied.
+- Points are earned which can be redeemed for statement credits, gift cards, or travel bookings through the issuer’s rewards portal. However, points are not earned on cash advances, fees, or balance transfers. It's not explicitly stated but this could potentially be seen as another form of charge.
+- In case of disputes, if the dispute is deemed invalid, the provisional credit would be reversed and interest will apply retroactively. This could be another form of charge.
+Q: what's the standard delivery time for replacement card
+A: Based on these policies, the standard delivery time for a replacement card is not explicitly stated. However, it is mentioned in Policy 6, Section 6 (Special Considerations for International Travel) that in the event the card is lost or stolen during international travel, the issuer will provide expedited card replacement services and the replacement card will be issued and delivered within 2-3 business days in most major cities. Please refer to your specific cardholder agreement or contact the card issuer for the standard delivery time for replacement cards in non-emergency situations or within your home country.
+---
+Q: how can card holder temporary freeze their card
+A: Based on the provided policies, there are no explicit instructions given on how a cardholder can temporarily freeze their card. However, in regards to fraud protection (Policy 1, Section 6), it is mentioned that the issuer employs real-time fraud monitoring tools. If suspicious activity is detected, the cardholder is notified via email or SMS. If the cardholder doesn't confirm the activity within 24 hours, his/her card may be temporarily suspended. This could be indirectly interpreted as a de facto way to freeze the card, albeit not initiated directly by the cardholder.
+
+One might also infer from the policy on Termination of Agreement (Policy 1, Section 8) that a cardholder could initiate a temporary freeze, but the text only specifies the process for complete termination, not a freeze. It is recommended that the cardholder gets in touch directly with the card issuer or refers to other parts of their agreement that specifically address how to temporarily freeze the card.
+---
