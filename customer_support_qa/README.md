@@ -3,9 +3,6 @@ https://console-preview.neo4j.io/projects/64be119e-9a78-48b9-9dbd-50f5ba6cba11/i
 
 https://browser.graphapp.io/
 
-# remove it after its tested on bash and checking neo4j connection
-
-cypher-shell -a "neo4j+s://37b30e3e.databases.neo4j.io" -u neo4j -p 'j992HzS8Mz5ka-AnFP6y3_BTSRr_cXjq7DogC0p3qmM' "RETURN 1;"
 
 # Neo4j Browser
 If you’re using Neo4j Aura, open the Neo4j browser:
