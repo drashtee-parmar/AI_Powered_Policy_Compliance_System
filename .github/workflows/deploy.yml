@@ -7,7 +7,7 @@ on:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
-  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}        # e.g. 370260028554.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}        # e.g. 3702600....amazonaws.com
   ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}    # e.g. policy/compliance-system
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Build from ./repo with Dockerfile at ./repo/Dockerfile
+      # Build from REPO ROOT (.) where Dockerfile lives
       - name: Build Docker image
         run: |
           set -e
@@ -36,12 +36,11 @@ jobs:
           SHA_TAG="${IMAGE_NAME}:sha-${GITHUB_SHA}"
           LATEST_TAG="${IMAGE_NAME}:latest"
 
-          echo "Building ${SHA_TAG}"
+          echo "Building ${SHA_TAG} from repo root"
           docker build \
-            -f repo/Dockerfile \
             -t "${SHA_TAG}" \
             -t "${LATEST_TAG}" \
-            repo
+            .
 
           echo "SHA_TAG=${SHA_TAG}" >> "$GITHUB_ENV"
           echo "LATEST_TAG=${LATEST_TAG}" >> "$GITHUB_ENV"
@@ -61,7 +60,7 @@ jobs:
           script: |
             set -e
             cd ~/policy-qa
-            # ensure .env exists and has IMAGE
+            # ensure .env exists and set IMAGE to the new tag
             if [ ! -f .env ]; then touch .env; fi
             if grep -q '^IMAGE=' .env; then
               sed -i "s#^IMAGE=.*#IMAGE=${SHA_TAG}#" .env
