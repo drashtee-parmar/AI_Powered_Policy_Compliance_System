@@ -4,12 +4,11 @@ __pycache__/
 *.pyc
 *.ipynb_checkpoints/
 
-# Mount at runtime (don’t bake into image)
+# Large artifacts mounted at runtime
 vector.index
 meta.pkl
 policies/
 
-# Local clutter
 .DS_Store
 .vscode/
 .idea/
