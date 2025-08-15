@@ -2,11 +2,15 @@ name: Deploy to EC2 via ECR
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch: {}
+    branches:
+      - main
+  workflow_dispatch:
 
 env:
   IMAGE_NAME: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}
+
+permissions:
+  contents: read
 
 jobs:
   build-and-deploy:
@@ -26,11 +30,11 @@ jobs:
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build & push image (tags: sha + latest)
+      - name: "Build and push image (tags: sha and latest)"
         run: |
           set -e
-          IMAGE_SHA="${IMAGE_NAME}:sha-${GITHUB_SHA}"
-          IMAGE_LATEST="${IMAGE_NAME}:latest"
+          IMAGE_SHA="${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA}"
+          IMAGE_LATEST="${{ env.IMAGE_NAME }}:latest"
 
           docker build \
             -t "$IMAGE_SHA" \
@@ -55,14 +59,19 @@ jobs:
           envs: AWS_REGION,ECR_REGISTRY,ECR_REPOSITORY,ECR_PASSWORD,IMAGE_NAME,GITHUB_SHA
           script: |
             set -euo pipefail
-            echo "$ECR_PASSWORD" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+            # Login to ECR on the EC2 host using the short-lived token we generated
+            echo "$ECR_PASSWORD" | docker login --username AWS --password-stdin "${{ secrets.ECR_REGISTRY }}"
 
             cd ~/policy-qa
 
+            # Pull the newly built image by commit SHA tag
             IMAGE="${IMAGE_NAME}:sha-${GITHUB_SHA}"
             docker pull "$IMAGE"
 
+            # Run compose pointing at the new image
             export IMAGE="$IMAGE"
             docker compose up -d
 
+            # Optional: clean up old layers
             docker image prune -f
