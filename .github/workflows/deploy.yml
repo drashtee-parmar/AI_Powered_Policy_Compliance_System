@@ -2,15 +2,14 @@ name: Deploy to EC2 via ECR
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
   workflow_dispatch:
 
 env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
   IMAGE_NAME: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}
-
-permissions:
-  contents: read
 
 jobs:
   build-and-deploy:
@@ -23,23 +22,20 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region:            ${{ secrets.AWS_REGION }}
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: "Build and push image (tags: sha and latest)"
+      - name: Build and push image (tags: sha and latest)
         run: |
           set -e
           IMAGE_SHA="${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA}"
           IMAGE_LATEST="${{ env.IMAGE_NAME }}:latest"
 
-          docker build \
-            -t "$IMAGE_SHA" \
-            -t "$IMAGE_LATEST" \
-            ./repo
+          docker build -t "$IMAGE_SHA" -t "$IMAGE_LATEST" .
 
           docker push "$IMAGE_SHA"
           docker push "$IMAGE_LATEST"
@@ -47,31 +43,27 @@ jobs:
           echo "IMAGE_SHA=$IMAGE_SHA" >> $GITHUB_ENV
 
       - name: Generate short-lived ECR password for EC2 login
+        id: ecr-token
         run: |
-          echo "ECR_PASSWORD=$(aws ecr get-login-password --region ${{ secrets.AWS_REGION }})" >> $GITHUB_ENV
+          aws ecr get-login-password --region "$AWS_REGION" > /tmp/ecr.pass
 
       - name: SSH to EC2 and deploy
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_HOST }}
+          host:     ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          envs: AWS_REGION,ECR_REGISTRY,ECR_REPOSITORY,ECR_PASSWORD,IMAGE_NAME,GITHUB_SHA
+          key:      ${{ secrets.EC2_SSH_KEY }}
           script: |
-            set -euo pipefail
-
-            # Login to ECR on the EC2 host using the short-lived token we generated
-            echo "$ECR_PASSWORD" | docker login --username AWS --password-stdin "${{ secrets.ECR_REGISTRY }}"
-
+            set -e
             cd ~/policy-qa
-
-            # Pull the newly built image by commit SHA tag
-            IMAGE="${IMAGE_NAME}:sha-${GITHUB_SHA}"
-            docker pull "$IMAGE"
-
-            # Run compose pointing at the new image
-            export IMAGE="$IMAGE"
+            echo "Using image: ${{ env.IMAGE_SHA }}"
+            # Ensure IMAGE is present/updated in .env for compose
+            sed -i 's#^IMAGE=.*#IMAGE=${{ env.IMAGE_SHA }}#' .env || echo "IMAGE=${{ env.IMAGE_SHA }}" >> .env
+            docker compose pull || true
             docker compose up -d
-
-            # Optional: clean up old layers
             docker image prune -f
+
+      - name: Post Logout from ECR
+        if: always()
+        run: |
+          docker logout ${{ env.ECR_REGISTRY }} || true
