@@ -17,3 +17,4 @@ soundfile==0.12.1
 pandas==2.2.2
 requests==2.32.3
 whisper==1.1.10
+httpx>=0.27.0

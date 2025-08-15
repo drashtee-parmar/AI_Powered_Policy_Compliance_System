@@ -44,6 +44,7 @@ source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 cp .env.example .env  # add keys/URIs
+pip install awscli
 ```
 
 (Optional) start Neo4j in Docker:
@@ -128,3 +129,61 @@ with driver.session(database="neo4j") as s:
 driver.close()
 PY
 ```
+
+<!-- Setting AWS -->
+- https://aws.amazon.com/free/?all-free-tier.sort-by=item.additionalFields.SortRank&all-free-tier.sort-order=asc&awsf.Free%20Tier%20Types=*all&awsf.Free%20Tier%20Categories=categories%23compute&trk=7d9db036-98ee-4f08-84bd-9160a8198dc4&sc_channel=ps&ef_id=CjwKCAjwkvbEBhApEiwAKUz6-9rY2DfVu8Ka61jHj0jFszbbraGZ8iggxwZscMRvtIatoBw_t4k-LxoCM_wQAvD_BwE:G:s&s_kwcid=AL!4422!3!651751059540!p!!g!!amazon%20cloud!19852662182!145019192617&gad_campaignid=19852662182&gbraid=0AAAAADjHtp-h0TVewmF7DeAuLBdubSYKI&gclid=CjwKCAjwkvbEBhApEiwAKUz6-9rY2DfVu8Ka61jHj0jFszbbraGZ8iggxwZscMRvtIatoBw_t4k-LxoCM_wQAvD_BwE
+
+- https://signin.aws.amazon.com/signin?client_id=arn%3Aaws%3Asignin%3A%3A%3Aconsole%2Fcanvas&redirect_uri=https%3A%2F%2Fconsole.aws.amazon.com%2Fconsole%2Fhome%3FhashArgs%3D%2523%26isauthcode%3Dtrue%26state%3DhashArgsFromTB_us-east-2_57058c0dd7356a0e&page=resolve&code_challenge=-SPSjr1nVyWkF-eGwhk6bKBMPP4JeRfqaclH3aDYfTo&code_challenge_method=SHA-256&backwards_compatible=true
+
+- root  user
+- with id and pw
+login console
+
+- https://us-east-2.console.aws.amazon.com/console/home?region=us-east-2#
+
+- Applications (0) Info
+Create application
+Region: US East (N. Virginia)
+
+- create EC2 launch instance
+name: PolicyComplianceSystem
+- select applicaiton and os images
+- name: Ubuntu Server 22.04 LTS (x86_64)
+- Create keypair: Policy-Compliance-Key
+
+![alt text](image.png)
+
+NOTE:
+ALWAYS STOP INSTANCE
+# SSH into the instance
+<!-- chmod 400 ~/.ssh/your-key.pem
+ssh -i ~/.ssh/Policy-Compliance-Key.pem ubuntu@YOUR_EC2_IP 
+-->
+```
+chmod 400~/.ssh/Users/drashteeparmar/Drashtee/Drashtee Projects/AI_Powered_Policy_Compliance_System
+chmod 400 ~/.ssh/Policy-Compliance-Key.pem
+
+ssh -i ~/.ssh/Policy-Compliance-Key.pem ubuntu@52.205.26.10
+
+yes
+
+
+ ```
+
+ 52.205.26.10
+
+
+chmod 400 ~/.ssh/Users/drashteeparmar/Drashtee/Drashtee Projects/AI_Powered_Policy_Compliance_System/Policy-Compliance-Key.pem
+
+
+
+scp -i ~/.ssh/Policy-Compliance-Key.pem \
+    vector.index meta.pkl \
+    ubuntu@3.81.105.216:/home/ubuntu/policy-qa/
+# 3) Install Docker, Compose plugin, AWS CLI
+
+/Users/drashteeparmar/Drashtee/Drashtee Projects/AI_Powered_Policy_Compliance_System/Policy-Compliance-Key.pem
+
+
+
+ http://3.81.105.216:8501

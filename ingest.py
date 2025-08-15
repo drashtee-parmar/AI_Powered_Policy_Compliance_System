@@ -33,6 +33,7 @@ META_PATH = "meta.pkl"
 
 
 # --------- Helpers ---------
+
 def read_docx(path: str) -> str:
     """Read a .docx file and return a single text string."""
     doc = Document(path)
