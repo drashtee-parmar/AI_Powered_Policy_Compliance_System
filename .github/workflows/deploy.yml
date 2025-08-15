@@ -2,18 +2,18 @@ name: Deploy to EC2 via ECR
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
-  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}        # e.g. 370260028554.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}    # e.g. policy/compliance-system
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,20 +28,29 @@ jobs:
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # Build from ./repo with Dockerfile at ./repo/Dockerfile
       - name: Build Docker image
         run: |
           set -e
-          IMAGE_NAME="${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}"
-          SHA_TAG="$IMAGE_NAME:sha-${GITHUB_SHA}"
-          LATEST_TAG="$IMAGE_NAME:latest"
-          docker build -t "$SHA_TAG" -t "$LATEST_TAG" .
-          echo "SHA_TAG=$SHA_TAG" >> $GITHUB_ENV
-          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+          IMAGE_NAME="${ECR_REGISTRY}/${ECR_REPOSITORY}"
+          SHA_TAG="${IMAGE_NAME}:sha-${GITHUB_SHA}"
+          LATEST_TAG="${IMAGE_NAME}:latest"
+
+          echo "Building ${SHA_TAG}"
+          docker build \
+            -f repo/Dockerfile \
+            -t "${SHA_TAG}" \
+            -t "${LATEST_TAG}" \
+            repo
+
+          echo "SHA_TAG=${SHA_TAG}" >> "$GITHUB_ENV"
+          echo "LATEST_TAG=${LATEST_TAG}" >> "$GITHUB_ENV"
 
       - name: Push Docker image
         run: |
-          docker push "${{ env.SHA_TAG }}"
-          docker push "${{ env.LATEST_TAG }}"
+          set -e
+          docker push "${SHA_TAG}"
+          docker push "${LATEST_TAG}"
 
       - name: Deploy on EC2
         uses: appleboy/ssh-action@v1.0.3
@@ -52,8 +61,13 @@ jobs:
           script: |
             set -e
             cd ~/policy-qa
-            # Write image tag into .env for compose
-            sed -i 's#^IMAGE=.*#IMAGE=${{ env.SHA_TAG }}#' .env || echo "IMAGE=${{ env.SHA_TAG }}" >> .env
+            # ensure .env exists and has IMAGE
+            if [ ! -f .env ]; then touch .env; fi
+            if grep -q '^IMAGE=' .env; then
+              sed -i "s#^IMAGE=.*#IMAGE=${SHA_TAG}#" .env
+            else
+              echo "IMAGE=${SHA_TAG}" >> .env
+            fi
             docker compose pull || true
             docker compose up -d
             docker image prune -f
