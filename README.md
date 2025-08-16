@@ -165,6 +165,12 @@ chmod 400 ~/.ssh/Policy-Compliance-Key.pem
 
 ssh -i ~/.ssh/Policy-Compliance-Key.pem ubuntu@52.205.26.10
 
+ssh -i your-key.pem ec2-user@<your-instance-public-ip>
+ssh -i Policy-Compliance-Key.pem ec2-user@52.205.26.10
+ssh -i ~/.ssh/Policy-Compliance-Key.pem ec2-user@52.205.26.10
+
+ssh -i Policy-Compliance-Key.pem ubuntu@52.205.26.10
+
 yes
 
 

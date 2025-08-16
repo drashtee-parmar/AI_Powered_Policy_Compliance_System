@@ -1,5 +1,5 @@
 #!/bin/sh
-'''exec' "/Users/drashteeparmar/Drashtee/Drashtee Projects/AI_Powered_Policy_Compliance_System/customer_support_qa/.venv/bin/python" "$0" "$@"
+'''exec' "/Users/drashteeparmar/Drashtee/Drashtee Projects/AI_Powered_Policy_Compliance_System/.venv/bin/python3.11" "$0" "$@"
 ' '''
 import sys
 from tqdm.cli import main
