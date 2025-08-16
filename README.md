@@ -53,7 +53,19 @@ docker compose up -d neo4j
 ```
 
 ## 2) Ingest
+source .venv/bin/activate
+python neo4j_utils.py
 
+
+
+source .venv/bin/activate
+python neo4j_connection_test.py
+
+source .venv/bin/activate
+python ingest.py
+
+source .venv/bin/activate
+python ingest.py --folder ./policies
 ```bash
 python -m graph_rag_voice.cli ingest ./sample_docs
 ```

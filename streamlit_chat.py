@@ -1,300 +1,44 @@
-# #!/usr/bin/env python3
-# import os
-# import html
-# import tempfile
-# from typing import Dict, Any, List, Optional
-
-# import streamlit as st
-# from qa import answer_query
-
-# st.set_page_config(page_title="Policy Q&A — Chat", page_icon="💬", layout="wide")
-
-# # Sidebar
-# with st.sidebar:
-#     st.title("Microphone")
-#     use_mic = st.toggle("Use Microphone", value=True)
-#     st.markdown("---")
-#     if st.button("Clear Chat", use_container_width=True):
-#         st.session_state.clear(); st.rerun()
-#     st.caption("Local voice or text → Whisper → RAG → Answer")
-
-# # State
-# if "history" not in st.session_state:
-#     st.session_state.history: List[Dict[str, Any]] = []
-# if "pending_audio_bytes" not in st.session_state:
-#     st.session_state.pending_audio_bytes: Optional[bytes] = None
-
-# # Header
-# st.title("Policy Q&A — Chat")
-# st.caption("Ask by voice or text. Expand a turn to view facts, confidence, and citation excerpts.")
-
-# # CSS – prevent per-character wrapping; keep normal paragraph flow
-# st.markdown(
-#     """
-#     <style>
-#       html, body, [class^="css"]  { font-size: 16px; }
-#       .stChatMessage { max-width: 1180px; margin-left:auto; margin-right:auto; }
-#       .stChatMessage [data-testid="stChatMessageContent"] { padding: 0.95rem 1.05rem; }
-#       .stChatMessage [data-testid="stChatMessageAvatar"] { transform: scale(1.25); }
-#       .stTextInput>div>div>input { font-size: 1.05rem; height: 3rem; }
-
-#       .ans-paragraph {
-#         margin: 0 0 0.7rem 0;
-#         line-height: 1.6;
-#         font-size: 1.06rem;
-#         white-space: normal;         /* allow normal wrapping */
-#         word-break: normal;          /* do not break every character */
-#         overflow-wrap: break-word;   /* break long tokens if needed */
-#       }
-#       .ans-list { margin: 0.25rem 0 0.7rem 1.2rem; }
-#       .ans-list li { margin: 0.2rem 0; line-height: 1.6; font-size: 1.04rem; }
-
-#       .citation-excerpt { white-space: pre-wrap; font-size: 0.95rem; line-height: 1.5; }
-#     </style>
-#     """,
-#     unsafe_allow_html=True,
-# )
-
-# # Microphone
-# if use_mic:
-#     try:
-#         from streamlit_mic_recorder import mic_recorder
-#         st.write("### Microphone")
-#         mic = mic_recorder(
-#             start_prompt="Start recording", stop_prompt="Stop recording",
-#             just_once=False, use_container_width=True, format="webm", key="mic1",
-#         )
-#         if mic and mic.get("bytes"):
-#             st.success("Captured audio.")
-#             st.audio(mic["bytes"], format="audio/webm")
-#             st.session_state.pending_audio_bytes = mic["bytes"]
-#     except Exception as e:
-#         st.warning(f"Microphone unavailable ({e}).")
-
-# # Backend callers
-# def _run_audio(audio_bytes: bytes) -> Dict[str, Any]:
-#     tmp_path = None
-#     try:
-#         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
-#             tmp.write(audio_bytes); tmp_path = tmp.name
-#         with st.spinner("Transcribing (Whisper) → Retrieving → Synthesizing…"):
-#             return answer_query(audio_path=tmp_path)
-#     finally:
-#         if tmp_path and os.path.exists(tmp_path):
-#             try: os.remove(tmp_path)
-#             except Exception: pass
-
-# def _run_text(text: str) -> Dict[str, Any]:
-#     with st.spinner("Retrieving → Synthesizing…"):
-#         return answer_query(query=text)
-
-# # Plain HTML answer renderer (no Markdown interpretation)
-# def render_plain_answer(text: str):
-#     if not text:
-#         return
-#     lines = [ln.rstrip() for ln in text.splitlines()]
-#     blocks: List[str] = []
-#     buf: List[str] = []
-#     in_list = False
-#     list_items: List[str] = []
-
-#     def flush_para():
-#         nonlocal buf, blocks
-#         if buf:
-#             p = html.escape(" ".join(buf).strip())
-#             if p:
-#                 blocks.append(f"<p class='ans-paragraph'>{p}</p>")
-#             buf = []
-
-#     def flush_list(items: List[str]):
-#         if not items:
-#             return ""
-#         lis = "".join(f"<li>{html.escape(x.strip())}</li>" for x in items if x.strip())
-#         return f"<ul class='ans-list'>{lis}</ul>"
-
-#     for ln in lines:
-#         if ln.strip().startswith("- "):
-#             if not in_list:
-#                 flush_para()
-#                 in_list = True
-#             list_items.append(ln.strip()[2:])
-#         elif ln.strip() == "":
-#             if in_list:
-#                 blocks.append(flush_list(list_items)); list_items = []; in_list = False
-#             else:
-#                 flush_para()
-#         else:
-#             if in_list:
-#                 blocks.append(flush_list(list_items)); list_items = []; in_list = False
-#             buf.append(ln)
-
-#     if in_list:
-#         blocks.append(flush_list(list_items))
-#     else:
-#         flush_para()
-
-#     st.markdown("".join(blocks), unsafe_allow_html=True)
-
-# def show_sources(citations: List[Dict[str, Any]], model_json: Any):
-#     if not isinstance(model_json, dict):
-#         model_json = {}
-#     facts = model_json.get("facts") or []
-#     conf  = model_json.get("confidence", None)
-#     src_count = len(citations)
-
-#     with st.expander(f"Details (sources: {src_count})", expanded=False):
-#         if facts:
-#             st.markdown("**Facts**")
-#             for f in facts:
-#                 st.markdown(f"- {html.escape(str(f))}", unsafe_allow_html=True)
-#         if conf is not None:
-#             st.markdown(f"**Confidence:** `{conf}`")
-#         if citations:
-#             st.markdown("**Top Citations**")
-#             for i, c in enumerate(citations, 1):
-#                 file = c.get("file", "?"); score = c.get("score", 0.0)
-#                 excerpt = c.get("excerpt", "")
-#                 with st.expander(f"{i}. {file} — score {score}", expanded=False):
-#                     st.markdown("**Excerpt**")
-#                     st.markdown(f"<div class='citation-excerpt'>{html.escape(excerpt)}</div>", unsafe_allow_html=True)
-
-# # Render history
-# for t in st.session_state.history:
-#     with st.chat_message("user", avatar="🧑‍💻"):
-#         st.markdown(t["user_text"])
-#     with st.chat_message("assistant", avatar="🧠"):
-#         render_plain_answer(t["assistant_text"])
-#         show_sources(t.get("citations", []), t.get("facts_block", {}))
-
-# # Handle pending audio
-# if st.session_state.pending_audio_bytes:
-#     try:
-#         with st.chat_message("assistant", avatar="🧠"):
-#             ph = st.empty(); ph.markdown("_(listening & thinking…)_")
-#         resp = _run_audio(st.session_state.pending_audio_bytes)
-#         ph.empty()
-
-#         turn = {
-#             "user_text": resp.get("query", "(voice message)"),
-#             "assistant_text": resp.get("unstructured", ""),
-#             "citations": resp.get("structured", {}).get("citations", []),
-#             "facts_block": resp.get("structured", {}).get("model_json", {}) or {},
-#         }
-#         if not isinstance(turn["facts_block"], dict):
-#             turn["facts_block"] = {}
-#         st.session_state.history.append(turn)
-
-#         with st.chat_message("user", avatar="🧑‍💻"): st.markdown(turn["user_text"])
-#         with st.chat_message("assistant", avatar="🧠"):
-#             render_plain_answer(turn["assistant_text"])
-#             show_sources(turn["citations"], turn["facts_block"])
-#     finally:
-#         st.session_state.pending_audio_bytes = None
-
-# # Text input
-# prompt = st.chat_input("Type your question and press Enter…")
-# if prompt:
-#     with st.chat_message("user", avatar="🧑‍💻"): st.markdown(prompt)
-#     with st.chat_message("assistant", avatar="🧠"):
-#         ph = st.empty(); ph.markdown("_(thinking…)_")
-#         try:
-#             resp = _run_text(prompt)
-#         except Exception as e:
-#             ph.empty(); st.error(f"Pipeline error: {e}")
-#         else:
-#             ph.empty()
-#             turn = {
-#                 "user_text": prompt,
-#                 "assistant_text": resp.get("unstructured", ""),
-#                 "citations": resp.get("structured", {}).get("citations", []),
-#                 "facts_block": resp.get("structured", {}).get("model_json", {}) or {},
-#             }
-#             if not isinstance(turn["facts_block"], dict):
-#                 turn["facts_block"] = {}
-#             st.session_state.history.append(turn)
-#             render_plain_answer(turn["assistant_text"])
-#             show_sources(turn["citations"], turn["facts_block"])
-
-import html
 #!/usr/bin/env python3
 import os
+import json
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Dict, Any
 
 import streamlit as st
-from qa import answer_query
+from qa import answer_query  # your existing pipeline
 
+st.set_page_config(page_title="Policy Q&A — Chat", page_icon="💬", layout="wide")
 
-# ---------- Sidebar ----------
+# ---------------------------
+# Sidebar
+# ---------------------------
 with st.sidebar:
-    st.title("Microphone")
+    st.title("Input")
     use_mic = st.toggle("Use Microphone", value=True)
     st.markdown("---")
-    if st.button("Clear Chat", use_container_width=True):
+    if st.button("Clear Chat", type="secondary", use_container_width=True):
         st.session_state.clear()
         st.rerun()
     st.caption("Local voice or text → Whisper → RAG → Answer")
 
-# ---------- Session State ----------
+# ---------------------------
+# Session state
+# ---------------------------
 if "history" not in st.session_state:
-    st.session_state.history: List[Dict[str, Any]] = []
+    # each turn: {user_text, assistant_text, assistant_struct}
+    st.session_state.history = []
 if "pending_audio_bytes" not in st.session_state:
-    st.session_state.pending_audio_bytes: Optional[bytes] = None
+    st.session_state.pending_audio_bytes = None
 
-# ---------- Header ----------
-# Custom CSS to center the title and subtitle
-st.markdown(
-    """
-    <style>
-    .centered-title {
-        text-align: center;
-        margin-top: 50px;
-    }
-    .centered-subtitle {
-        text-align: center;
-        font-size: 16px;
-        color: #999999;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+# ---------------------------
+# Header
+# ---------------------------
+st.title("Policy Q&A — Chat")
+st.caption("Ask by voice or text. Answers include citations and confidence. Expand a turn to view details.")
 
-# Title and subtitle
-st.markdown("<h1 class='centered-title'>Policy Q&A — Chat</h1>", unsafe_allow_html=True)
-st.markdown("<p class='centered-subtitle'>Ask by voice or text. Expand a turn to view facts, confidence, and citation excerpts.</p>", unsafe_allow_html=True)
-
-# st.title("Policy Q&A — Chat")
-# st.caption("Ask by voice or text. Expand a turn to view facts, confidence, and citation excerpts.")
-
-# ---------- CSS (clean paragraph wrapping) ----------
-st.markdown(
-    """
-    <style>
-      html, body, [class^="css"]  { font-size: 16px; }
-      .stChatMessage { max-width: 1180px; margin-left:auto; margin-right:auto; }
-      .stChatMessage [data-testid="stChatMessageContent"] { padding: 0.95rem 1.05rem; }
-      .stChatMessage [data-testid="stChatMessageAvatar"] { transform: scale(1.25); }
-      .stTextInput>div>div>input { font-size: 1.05rem; height: 3rem; }
-
-      .ans-paragraph {
-        margin: 0 0 0.7rem 0;
-        line-height: 1.6;
-        font-size: 1.06rem;
-        white-space: normal;
-        word-break: normal;
-        overflow-wrap: break-word;
-      }
-      .ans-list { margin: 0.25rem 0 0.7rem 1.2rem; }
-      .ans-list li { margin: 0.2rem 0; line-height: 1.6; font-size: 1.04rem; }
-
-      .citation-excerpt { white-space: pre-wrap; font-size: 0.95rem; line-height: 1.5; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ---------- Microphone ----------
+# ---------------------------
+# Microphone (no upload mode)
+# ---------------------------
 if use_mic:
     try:
         from streamlit_mic_recorder import mic_recorder
@@ -314,9 +58,29 @@ if use_mic:
     except Exception as e:
         st.warning(f"Microphone unavailable ({e}).")
 
-# ---------- Helpers ----------
-def _run_audio(audio_bytes: bytes) -> Dict[str, Any]:
-    """Transcribe + RAG + LLM for audio input."""
+# ---------------------------
+# Chat history renderer
+# ---------------------------
+def render_turn(turn: Dict[str, Any]):
+    with st.chat_message("user"):
+        st.markdown(turn["user_text"])
+    with st.chat_message("assistant"):
+        st.markdown(turn["assistant_text"])
+        with st.expander("Details", expanded=False):
+            model_json = turn.get("assistant_struct", {}).get("model_json", {})
+            st.write("**Facts / Citations / Confidence**")
+            st.json(model_json)
+            st.write("**Top Citations**")
+            st.json(turn.get("assistant_struct", {}).get("citations", []))
+
+for t in st.session_state.history:
+    render_turn(t)
+
+# ---------------------------
+# Helpers
+# ---------------------------
+def run_audio_query(audio_bytes: bytes) -> Dict[str, Any]:
+    """Save bytes to temp file, call pipeline, delete file."""
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
@@ -331,154 +95,41 @@ def _run_audio(audio_bytes: bytes) -> Dict[str, Any]:
             except Exception:
                 pass
 
-def _run_text(text: str) -> Dict[str, Any]:
+def run_text_query(text: str) -> Dict[str, Any]:
     with st.spinner("Retrieving → Synthesizing…"):
         return answer_query(query=text)
 
-def render_plain_answer(text: str):
-    """Render the normalized plain text answer with simple paragraphs and lists."""
-    if not text:
-        return
-    lines = [ln.rstrip() for ln in text.splitlines()]
-    blocks: List[str] = []
-    buf: List[str] = []
-    in_list = False
-    list_items: List[str] = []
-
-    def flush_para():
-        nonlocal buf, blocks
-        if buf:
-            p = html.escape(" ".join(buf).strip())
-            if p:
-                blocks.append(f"<p class='ans-paragraph'>{p}</p>")
-            buf = []
-
-    def flush_list(items: List[str]):
-        if not items:
-            return ""
-        lis = "".join(f"<li>{html.escape(x.strip())}</li>" for x in items if x.strip())
-        return f"<ul class='ans-list'>{lis}</ul>"
-
-    for ln in lines:
-        if ln.strip().startswith("- "):
-            if not in_list:
-                flush_para()
-                in_list = True
-            list_items.append(ln.strip()[2:])
-        elif ln.strip() == "":
-            if in_list:
-                blocks.append(flush_list(list_items)); list_items = []; in_list = False
-            else:
-                flush_para()
-        else:
-            if in_list:
-                blocks.append(flush_list(list_items)); list_items = []; in_list = False
-            buf.append(ln)
-
-    if in_list:
-        blocks.append(flush_list(list_items))
-    else:
-        flush_para()
-
-    st.markdown("".join(blocks), unsafe_allow_html=True)
-
-def show_sources(citations: List[Dict[str, Any]], model_json: Any):
-    if not isinstance(model_json, dict):
-        model_json = {}
-    facts = model_json.get("facts") or []
-    conf  = model_json.get("confidence", None)
-    src_count = len(citations)
-
-    with st.expander(f"Details (sources: {src_count})", expanded=False):
-        if facts:
-            st.markdown("**Facts**")
-            for f in facts:
-                st.markdown(f"- {html.escape(str(f))}", unsafe_allow_html=True)
-        if conf is not None:
-            st.markdown(f"**Confidence:** `{conf}`")
-        if citations:
-            st.markdown("**Top Citations**")
-            for i, c in enumerate(citations, 1):
-                file = c.get("file", "?"); score = c.get("score", 0.0)
-                excerpt = c.get("excerpt", "")
-                with st.expander(f"{i}. {file} — score {score}", expanded=False):
-                    st.markdown("**Excerpt**")
-                    st.markdown(
-                        f"<div class='citation-excerpt'>{html.escape(excerpt)}</div>",
-                        unsafe_allow_html=True,
-                    )
-
-# ---------- Render existing history ----------
-for t in st.session_state.history:
-    with st.chat_message("user", avatar="🧑‍💻"):
-        st.markdown(t["user_text"])
-    with st.chat_message("assistant", avatar="🧠"):
-        render_plain_answer(t["assistant_text"])
-        show_sources(t.get("citations", []), t.get("facts_block", {}))
-
-# ---------- Handle pending audio (SHOW USER FIRST) ----------
+# ---------------------------
+# Dispatch: audio first, then text input
+# ---------------------------
+# If we have pending audio, process it and show the transcribed question as the user message
 if st.session_state.pending_audio_bytes:
-    audio_bytes = st.session_state.pending_audio_bytes
-    st.session_state.pending_audio_bytes = None  # consume immediately
-
     try:
-        # Run full pipeline (transcribe+RAG+LLM)
-        resp = _run_audio(audio_bytes)
-
-        # 1) USER bubble: transcribed query FIRST
-        user_text = resp.get("query", "").strip() or "(voice message)"
-        with st.chat_message("user", avatar="🧑‍💻"):
-            st.markdown(user_text)
-
-        # 2) ASSISTANT bubble: final answer
-        assistant_text = resp.get("unstructured", "")
-        citations = resp.get("structured", {}).get("citations", [])
-        facts_block = resp.get("structured", {}).get("model_json", {}) or {}
-        if not isinstance(facts_block, dict):
-            facts_block = {}
-
-        with st.chat_message("assistant", avatar="🧠"):
-            render_plain_answer(assistant_text)
-            show_sources(citations, facts_block)
-
-        # 3) Persist in history in correct order
-        st.session_state.history.append({
+        resp = run_audio_query(st.session_state.pending_audio_bytes)
+        user_text = resp.get("query", "_(voice message)_")  # show the transcribed question
+        turn = {
             "user_text": user_text,
-            "assistant_text": assistant_text,
-            "citations": citations,
-            "facts_block": facts_block,
-        })
-
+            "assistant_text": resp.get("unstructured", ""),
+            "assistant_struct": resp.get("structured", {}),
+        }
+        st.session_state.history.append(turn)
+        render_turn(turn)
     except Exception as e:
-        st.error(f"Pipeline error (audio): {e}")
+        st.error(f"Pipeline error: {e}")
+    finally:
+        st.session_state.pending_audio_bytes = None
 
-# ---------- Text input ----------
+# Text input (press Enter to send); show exactly what the user typed
 prompt = st.chat_input("Type your question and press Enter…")
 if prompt:
-    # 1) USER bubble immediately
-    with st.chat_message("user", avatar="🧑‍💻"):
-        st.markdown(prompt)
-
-    # 2) Run pipeline and render assistant
     try:
-        resp = _run_text(prompt)
-        assistant_text = resp.get("unstructured", "")
-        citations = resp.get("structured", {}).get("citations", [])
-        facts_block = resp.get("structured", {}).get("model_json", {}) or {}
-        if not isinstance(facts_block, dict):
-            facts_block = {}
-
-        with st.chat_message("assistant", avatar="🧠"):
-            render_plain_answer(assistant_text)
-            show_sources(citations, facts_block)
-
-        # 3) Persist
-        st.session_state.history.append({
-            "user_text": prompt,
-            "assistant_text": assistant_text,
-            "citations": citations,
-            "facts_block": facts_block,
-        })
-
+        resp = run_text_query(prompt)
+        turn = {
+            "user_text": prompt,  # show typed question
+            "assistant_text": resp.get("unstructured", ""),
+            "assistant_struct": resp.get("structured", {}),
+        }
+        st.session_state.history.append(turn)
+        render_turn(turn)
     except Exception as e:
-        st.error(f"Pipeline error (text): {e}")
+        st.error(f"Pipeline error: {e}")

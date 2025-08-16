@@ -3,12 +3,15 @@
 ingest.py
 ---------
 Ingest .docx policies, chunk, embed (OpenAI), index (FAISS),
-and upsert into Neo4j as (:Doc)-[:HAS_CHUNK]->(:Chunk).
+and upsert into Neo4j as (:File)-[:HAS_CHUNK]->(:Chunk).
 
 Usage:
+    source .venv/bin/activate
     python ingest.py                       # uses ./policies
     python ingest.py --folder ./my_docs    # custom folder
 """
+
+from __future__ import annotations
 
 import os
 import glob
@@ -38,8 +41,7 @@ def read_docx(path: str) -> str:
     """Read a .docx file and return a single text string."""
     doc = Document(path)
     parts = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
-    text = "\n".join(parts)
-    return text
+    return "\n".join(parts)
 
 
 def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
@@ -110,6 +112,48 @@ def ingest_one_file(file_path: str) -> Tuple[List[Dict], List[str]]:
     return metas, chunks
 
 
+# --------- Neo4j fallback upsert (if client lacks method) ---------
+
+def _upsert_doc_with_chunks_via_cypher(n4j: Neo4jClient, file_name: str, chunks: List[Dict[str, str]]) -> None:
+    """
+    Safe upsert that works even if Neo4jClient doesn't have upsert_doc_with_chunks().
+    Uses one statement per run (Neo4j Python driver requirement).
+    """
+    ids = [str(c["id"]) for c in chunks]
+
+    with n4j.driver.session(database=getattr(n4j, "db", "neo4j")) as s:
+        # Ensure File
+        s.run("MERGE (:File {name: $file})", file=file_name).consume()
+
+        if chunks:
+            # Upsert chunks + relationships
+            upsert_chunks = """
+            UNWIND $rows AS row
+            MATCH (f:File {name: $file})
+            MERGE (c:Chunk {id: row.id})
+              ON CREATE SET c.text = row.text, c.file = $file
+              ON MATCH  SET c.text = row.text, c.file = $file
+            MERGE (f)-[:HAS_CHUNK]->(c)
+            """
+            s.run(upsert_chunks, file=file_name, rows=chunks).consume()
+
+            # Drop stale rels from this File
+            drop_stale_rels = """
+            MATCH (f:File {name: $file})-[r:HAS_CHUNK]->(c:Chunk)
+            WHERE NOT c.id IN $ids
+            DELETE r
+            """
+            s.run(drop_stale_rels, file=file_name, ids=ids).consume()
+
+        # Delete orphan chunks (no File pointing to them)
+        delete_orphans = """
+        MATCH (c:Chunk)
+        WHERE NOT EXISTS { MATCH (:File)-[:HAS_CHUNK]->(c) }
+        DETACH DELETE c
+        """
+        s.run(delete_orphans).consume()
+
+
 # --------- Main pipeline ---------
 def main(policies_dir: str = "policies") -> None:
     load_dotenv()
@@ -120,11 +164,12 @@ def main(policies_dir: str = "policies") -> None:
     if not api_key:
         raise RuntimeError("[INGEST][ERROR] OPENAI_API_KEY is not set in your environment.")
     print(f"[INGEST] Using OpenAI embeddings model: {embed_model}")
-    oai = OpenAI()  # will read OPENAI_API_KEY from env
+    oai = OpenAI()  # reads OPENAI_API_KEY from env
 
     # Neo4j client
     print("[INGEST] Connecting to Neo4j ...")
     n4j = Neo4jClient()  # reads NEO4J_URI/USER/PASSWORD/DB from .env
+    # If your client creates constraints in __init__, great. If not, we can’t assume here.
 
     # Scan folder
     files = scan_docx(policies_dir)
@@ -143,10 +188,16 @@ def main(policies_dir: str = "policies") -> None:
         if not metas:
             continue
 
-        # Upsert per file to Neo4j
+        # Upsert per file to Neo4j (use client method if available, else fallback)
         file_name = metas[0]["file"]
         file_chunks = [{"id": m["id"], "text": m["text"]} for m in metas]
-        n4j.upsert_doc_with_chunks(file_name, file_chunks)
+
+        if hasattr(n4j, "upsert_doc_with_chunks"):
+            # Preferred path if your client implements it
+            n4j.upsert_doc_with_chunks(file_name, file_chunks)
+        else:
+            # Fallback that always works
+            _upsert_doc_with_chunks_via_cypher(n4j, file_name, file_chunks)
 
         # Accumulate for vector index
         all_meta.extend(metas)
