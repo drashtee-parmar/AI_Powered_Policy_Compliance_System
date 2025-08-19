@@ -57,42 +57,76 @@ jobs:
       # ---- Deploy on EC2 via SSM RunCommand (no SSH) ----
       - name: Deploy on EC2 (SSM)
         env:
-          IMAGE: ${{ env.IMAGE }}               # e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com/policy/compliance-system:sha-...
+          IMAGE: ${{ env.IMAGE }}                      # e.g. 123456....dkr.ecr.us-east-1.amazonaws.com/policy/compliance-system:sha-...
           EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
-          set -e
+          set -euo pipefail
 
-          # Build the JSON parameters cleanly (let the shell expand $IMAGE here).
-          read -r -d '' SSM_PARAMS <<JSON
-          {
-            "commands": [
-              "#!/bin/bash",
-              "set -e",
-              "cd ~/policy-qa",
-              "touch .env",
-              "if grep -q ^IMAGE= .env; then sed -i \"s#^IMAGE=.*#IMAGE=${IMAGE}#\" .env; else echo IMAGE=${IMAGE} >> .env; fi",
-              "docker compose pull || true",
-              "docker compose up -d",
-              "docker image prune -f"
-            ]
-          }
-          JSON
+          # Ensure jq is available (usually present, but just in case)
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+          fi
 
-          # Send the command
+          echo "Deploying IMAGE=${IMAGE} to instance ${EC2_INSTANCE_ID} in ${AWS_REGION}"
+
+          # Build the *exact* shell lines we want the instance to run
+          CMDS=$(
+            jq -Rc --slurp 'split("\n")[:-1]' <<'EOS'
+      set -e
+      cd ~/policy-qa
+      touch .env
+      if grep -q ^IMAGE= .env; then sed -i 's#^IMAGE=.*#IMAGE='"${IMAGE}"'#' .env; else echo IMAGE='"${IMAGE}"' >> .env; fi
+      docker compose pull || true
+      docker compose up -d
+      docker image prune -f
+      EOS
+          )
+
+          # Note: we *substitute* ${IMAGE} into the above here (after creating JSON safely)
+          CMDS=$(echo "$CMDS" | sed "s|\${IMAGE}|${IMAGE}|g")
+
+          # Kick off the SSM command
           CMD_ID=$(
             aws ssm send-command \
+              --region "$AWS_REGION" \
               --instance-ids "$EC2_INSTANCE_ID" \
               --document-name "AWS-RunShellScript" \
               --comment "Policy QA deploy from GitHub Actions" \
-              --parameters "$SSM_PARAMS" \
+              --parameters "commands=${CMDS}" \
               --timeout-seconds 600 \
-              --cloud-watch-output-config CloudWatchOutputEnabled=true,CloudWatchLogGroupName="/policy-qa/deploy" \
               --query "Command.CommandId" \
               --output text
           )
 
           echo "SSM CommandId: $CMD_ID"
 
-          # (optional) wait for completion & surface logs in the workflow
-          aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$EC2_INSTANCE_ID"
-          aws ssm list-command-invocations --command-id "$CMD_ID" --details --output text || true
+          # Wait for the command to execute
+          aws ssm wait command-executed \
+            --region "$AWS_REGION" \
+            --command-id "$CMD_ID" \
+            --instance-id "$EC2_INSTANCE_ID"
+
+          # Fetch detailed result
+          INVOC=$(aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$CMD_ID" \
+            --instance-id "$EC2_INSTANCE_ID" \
+            --output json)
+
+          STATUS=$(echo "$INVOC" | jq -r .Status)
+          STDOUT=$(echo "$INVOC" | jq -r .StandardOutputContent)
+          STDERR=$(echo "$INVOC" | jq -r .StandardErrorContent)
+
+          echo "SSM Status: $STATUS"
+          echo "----- STDOUT -----"
+          printf "%s\n" "$STDOUT"
+          echo "----- STDERR -----"
+          printf "%s\n" "$STDERR"
+
+          # Fail the job if SSM failed
+          if [ "$STATUS" != "Success" ]; then
+            echo "Deploy failed with status: $STATUS"
+            exit 1
+          fi
