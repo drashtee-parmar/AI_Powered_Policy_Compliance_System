@@ -58,33 +58,28 @@ jobs:
       - name: Deploy on EC2 (SSM)
         run: |
           set -e
-          # The command the instance will execute:
-          SSM_CMD=$(cat <<'EOF'
-          set -e
-          cd ~/policy-qa
-          # (1) Write/replace IMAGE line inside .env so docker-compose uses the new tag
-          touch .env
-          if grep -q '^IMAGE=' .env; then
-            sed -i 's#^IMAGE=.*$#IMAGE='"'"'${IMAGE}'"'"'#' .env
-          else
-            echo "IMAGE=${IMAGE}" >> .env
-          fi
-
-          # (2) Pull & restart
-          docker compose pull || true
-          docker compose up -d
-          docker image prune -f
-          EOF
-          )
-
           aws ssm send-command \
             --instance-ids "${EC2_INSTANCE_ID}" \
             --document-name "AWS-RunShellScript" \
             --comment "Policy QA deploy from GitHub Actions" \
-            --parameters commands=["$SSM_CMD"] \
+            --parameters '{
+              "commands": [
+                "bash -lc '\''set -e; \
+                cd ~/policy-qa; \
+                touch .env; \
+                if grep -q ^IMAGE= .env; then \
+                  sed -i \"s#^IMAGE=.*#IMAGE='"${IMAGE}"'#\" .env; \
+                else \
+                  echo IMAGE='"${IMAGE}"' >> .env; \
+                fi; \
+                docker compose pull || true; \
+                docker compose up -d; \
+                docker image prune -f'\''"
+              ]
+            }' \
             --timeout-seconds 600 \
             --cloud-watch-output-config CloudWatchOutputEnabled=true,CloudWatchLogGroupName="/policy-qa/deploy" \
-            --output text \
-            --query "Command.CommandId"
+            --query "Command.CommandId" \
+            --output text
         env:
           IMAGE: ${{ env.IMAGE }}
