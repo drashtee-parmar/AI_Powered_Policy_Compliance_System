@@ -56,59 +56,64 @@ jobs:
 
       # ---- Deploy on EC2 via SSM RunCommand (no SSH) ----
       - name: Deploy on EC2 (SSM)
+        shell: bash
         env:
-          IMAGE: ${{ env.IMAGE }}                      # e.g. 123456....dkr.ecr.us-east-1.amazonaws.com/policy/compliance-system:sha-...
+          # IMAGE should have been set earlier in the job (the ECR image you just pushed)
+          IMAGE: ${{ env.IMAGE }}
           EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           set -euo pipefail
 
-          # Ensure jq is available (usually present, but just in case)
+          # Ensure jq is available on the runner
           if ! command -v jq >/dev/null 2>&1; then
             sudo apt-get update -y
             sudo apt-get install -y jq
           fi
 
-          echo "Deploying IMAGE=${IMAGE} to instance ${EC2_INSTANCE_ID} in ${AWS_REGION}"
+          echo "Deploying IMAGE=${IMAGE} to instance ${EC2_INSTANCE_ID} (region ${AWS_REGION})"
 
-          # Build the *exact* shell lines we want the instance to run
-          CMDS=$(
-            jq -Rc --slurp 'split("\n")[:-1]' <<'EOS'
+          # The exact shell script you want the instance to execute
+          # NOTE: we keep ${IMAGE} as a literal placeholder here and substitute below.
+          read -r -d '' SCRIPT <<'SCRIPT_EOF'
       set -e
       cd ~/policy-qa
       touch .env
-      if grep -q ^IMAGE= .env; then sed -i 's#^IMAGE=.*#IMAGE='"${IMAGE}"'#' .env; else echo IMAGE='"${IMAGE}"' >> .env; fi
+      if grep -q ^IMAGE= .env; then
+        sed -i 's#^IMAGE=.*#IMAGE=${IMAGE}#' .env
+      else
+        echo "IMAGE=${IMAGE}" >> .env
+      fi
       docker compose pull || true
       docker compose up -d
       docker image prune -f
-      EOS
-          )
+      SCRIPT_EOF
 
-          # Note: we *substitute* ${IMAGE} into the above here (after creating JSON safely)
-          CMDS=$(echo "$CMDS" | sed "s|\${IMAGE}|${IMAGE}|g")
+          # Turn it into a JSON array of lines for SSM
+          CMDS_JSON=$(jq -Rn --arg s "$SCRIPT" '$s|split("\n")')
 
-          # Kick off the SSM command
-          CMD_ID=$(
-            aws ssm send-command \
-              --region "$AWS_REGION" \
-              --instance-ids "$EC2_INSTANCE_ID" \
-              --document-name "AWS-RunShellScript" \
-              --comment "Policy QA deploy from GitHub Actions" \
-              --parameters "commands=${CMDS}" \
-              --timeout-seconds 600 \
-              --query "Command.CommandId" \
-              --output text
-          )
+          # Substitute the IMAGE value *after* JSON creation (safe)
+          CMDS_JSON=${CMDS_JSON//'${IMAGE}'/"${IMAGE}"}
+
+          # Send SSM command
+          CMD_ID=$(aws ssm send-command \
+            --region "$AWS_REGION" \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Policy QA deploy from GitHub Actions" \
+            --parameters "commands=${CMDS_JSON}" \
+            --timeout-seconds 600 \
+            --query "Command.CommandId" \
+            --output text)
 
           echo "SSM CommandId: $CMD_ID"
 
-          # Wait for the command to execute
+          # Wait for completion and show logs
           aws ssm wait command-executed \
             --region "$AWS_REGION" \
             --command-id "$CMD_ID" \
             --instance-id "$EC2_INSTANCE_ID"
 
-          # Fetch detailed result
           INVOC=$(aws ssm get-command-invocation \
             --region "$AWS_REGION" \
             --command-id "$CMD_ID" \
@@ -116,17 +121,10 @@ jobs:
             --output json)
 
           STATUS=$(echo "$INVOC" | jq -r .Status)
-          STDOUT=$(echo "$INVOC" | jq -r .StandardOutputContent)
-          STDERR=$(echo "$INVOC" | jq -r .StandardErrorContent)
-
           echo "SSM Status: $STATUS"
           echo "----- STDOUT -----"
-          printf "%s\n" "$STDOUT"
+          echo "$INVOC" | jq -r .StandardOutputContent
           echo "----- STDERR -----"
-          printf "%s\n" "$STDERR"
+          echo "$INVOC" | jq -r .StandardErrorContent
 
-          # Fail the job if SSM failed
-          if [ "$STATUS" != "Success" ]; then
-            echo "Deploy failed with status: $STATUS"
-            exit 1
-          fi
+          test "$STATUS" = "Success"
