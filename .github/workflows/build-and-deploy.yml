@@ -1,0 +1,90 @@
+name: build-and-deploy
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    # ---- Everything we need pulled from Secrets you already created ----
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}          
+      ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}      
+      EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}    
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ---- ECR login (produces the registry URL) ----
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ---- Build & push (both a SHA tag and "latest") ----
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}   # same as ECR_REGISTRY
+          REPO: ${{ env.ECR_REPOSITORY }}
+        run: |
+          set -e
+          SHA_TAG="$REGISTRY/$REPO:sha-${GITHUB_SHA}"
+          LATEST_TAG="$REGISTRY/$REPO:latest"
+
+          echo "Building $SHA_TAG and $LATEST_TAG ..."
+          docker build -t "$SHA_TAG" -t "$LATEST_TAG" .
+
+          echo "Pushing images ..."
+          docker push "$SHA_TAG"
+          docker push "$LATEST_TAG"
+
+          # make the resolved image (sha tag) available to later steps
+          echo "IMAGE=$SHA_TAG" >> $GITHUB_ENV
+
+      # ---- Deploy on EC2 via SSM RunCommand (no SSH) ----
+      - name: Deploy on EC2 (SSM)
+        run: |
+          set -e
+          # The command the instance will execute:
+          SSM_CMD=$(cat <<'EOF'
+          set -e
+          cd ~/policy-qa
+          # (1) Write/replace IMAGE line inside .env so docker-compose uses the new tag
+          touch .env
+          if grep -q '^IMAGE=' .env; then
+            sed -i 's#^IMAGE=.*$#IMAGE='"'"'${IMAGE}'"'"'#' .env
+          else
+            echo "IMAGE=${IMAGE}" >> .env
+          fi
+
+          # (2) Pull & restart
+          docker compose pull || true
+          docker compose up -d
+          docker image prune -f
+          EOF
+          )
+
+          aws ssm send-command \
+            --instance-ids "${EC2_INSTANCE_ID}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Policy QA deploy from GitHub Actions" \
+            --parameters commands=["$SSM_CMD"] \
+            --timeout-seconds 600 \
+            --cloud-watch-output-config CloudWatchOutputEnabled=true,CloudWatchLogGroupName="/policy-qa/deploy" \
+            --output text \
+            --query "Command.CommandId"
+        env:
+          IMAGE: ${{ env.IMAGE }}
