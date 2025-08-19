@@ -56,30 +56,43 @@ jobs:
 
       # ---- Deploy on EC2 via SSM RunCommand (no SSH) ----
       - name: Deploy on EC2 (SSM)
+        env:
+          IMAGE: ${{ env.IMAGE }}               # e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com/policy/compliance-system:sha-...
+          EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
         run: |
           set -e
-          aws ssm send-command \
-            --instance-ids "${EC2_INSTANCE_ID}" \
-            --document-name "AWS-RunShellScript" \
-            --comment "Policy QA deploy from GitHub Actions" \
-            --parameters '{
-              "commands": [
-                "bash -lc '\''set -e; \
-                cd ~/policy-qa; \
-                touch .env; \
-                if grep -q ^IMAGE= .env; then \
-                  sed -i \"s#^IMAGE=.*#IMAGE='"${IMAGE}"'#\" .env; \
-                else \
-                  echo IMAGE='"${IMAGE}"' >> .env; \
-                fi; \
-                docker compose pull || true; \
-                docker compose up -d; \
-                docker image prune -f'\''"
-              ]
-            }' \
-            --timeout-seconds 600 \
-            --cloud-watch-output-config CloudWatchOutputEnabled=true,CloudWatchLogGroupName="/policy-qa/deploy" \
-            --query "Command.CommandId" \
-            --output text
-        env:
-          IMAGE: ${{ env.IMAGE }}
+
+          # Build the JSON parameters cleanly (let the shell expand $IMAGE here).
+          read -r -d '' SSM_PARAMS <<JSON
+          {
+            "commands": [
+              "#!/bin/bash",
+              "set -e",
+              "cd ~/policy-qa",
+              "touch .env",
+              "if grep -q ^IMAGE= .env; then sed -i \"s#^IMAGE=.*#IMAGE=${IMAGE}#\" .env; else echo IMAGE=${IMAGE} >> .env; fi",
+              "docker compose pull || true",
+              "docker compose up -d",
+              "docker image prune -f"
+            ]
+          }
+          JSON
+
+          # Send the command
+          CMD_ID=$(
+            aws ssm send-command \
+              --instance-ids "$EC2_INSTANCE_ID" \
+              --document-name "AWS-RunShellScript" \
+              --comment "Policy QA deploy from GitHub Actions" \
+              --parameters "$SSM_PARAMS" \
+              --timeout-seconds 600 \
+              --cloud-watch-output-config CloudWatchOutputEnabled=true,CloudWatchLogGroupName="/policy-qa/deploy" \
+              --query "Command.CommandId" \
+              --output text
+          )
+
+          echo "SSM CommandId: $CMD_ID"
+
+          # (optional) wait for completion & surface logs in the workflow
+          aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$EC2_INSTANCE_ID"
+          aws ssm list-command-invocations --command-id "$CMD_ID" --details --output text || true
