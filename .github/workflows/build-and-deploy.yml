@@ -35,7 +35,7 @@ jobs:
 
       - name: Build and push image
         env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}   # usually the same as ECR_REGISTRY
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           REPO: ${{ env.ECR_REPOSITORY }}
         run: |
           set -euo pipefail
@@ -49,59 +49,57 @@ jobs:
           docker push "$SHA_TAG"
           docker push "$LATEST_TAG"
 
-          # make the resolved image available to next step
+          # export IMAGE for next steps
           echo "IMAGE=$SHA_TAG" >> "$GITHUB_ENV"
 
-      - name: Deploy on EC2 (SSM)
-        shell: bash
+      - name: Deploy on EC2 via SSM
         env:
-          IMAGE: ${{ env.IMAGE }}                # comes from previous step (GITHUB_ENV)
+          IMAGE: ${{ env.IMAGE }}
           AWS_REGION: ${{ env.AWS_REGION }}
           EC2_INSTANCE_ID: ${{ env.EC2_INSTANCE_ID }}
         run: |
           set -euo pipefail
 
-          # Ensure jq is present
+          # Ensure jq is available (used later to print logs nicely)
           if ! command -v jq >/dev/null 2>&1; then
             sudo apt-get update -y
             sudo apt-get install -y jq
           fi
 
-          echo "Deploying IMAGE=${IMAGE} to instance ${EC2_INSTANCE_ID} (region ${AWS_REGION})"
+          echo "Deploying IMAGE=${IMAGE} to EC2 instance ${EC2_INSTANCE_ID} (region ${AWS_REGION})"
 
-          # Build the exact remote script (keep ${IMAGE} literal here)
-          read -r -d '' SCRIPT <<'SCRIPT_EOF'
-set -e
-cd ~/policy-qa
-touch .env
-if grep -q ^IMAGE= .env; then
-  sed -i 's#^IMAGE=.*#IMAGE=${IMAGE}#' .env
-else
-  echo "IMAGE=${IMAGE}" >> .env
-fi
-docker compose pull || true
-docker compose up -d
-docker image prune -f
-SCRIPT_EOF
+          # 1) Write SSM parameters JSON to a file (no variable expansion here)
+          cat > ssm-params.json <<'JSON'
+          {
+            "commands": [
+              "set -e",
+              "cd ~/policy-qa",
+              "touch .env",
+              "if grep -q ^IMAGE= .env; then sed -i 's#^IMAGE=.*#IMAGE=__IMAGE__#' .env; else echo IMAGE=__IMAGE__ >> .env; fi",
+              "docker compose pull || true",
+              "docker compose up -d",
+              "docker image prune -f"
+            ]
+          }
+          JSON
 
-          # Convert to SSM JSON (array of lines), then substitute IMAGE safely
-          CMDS_JSON=$(jq -Rn --arg s "$SCRIPT" '$s|split("\n")')
-          CMDS_JSON=${CMDS_JSON//'${IMAGE}'/"${IMAGE}"}
+          # 2) Replace placeholder with real ECR image tag
+          sed -i "s|__IMAGE__|${IMAGE}|g" ssm-params.json
 
-          # Send SSM command
+          # 3) Send SSM command using the JSON file
           CMD_ID=$(aws ssm send-command \
             --region "$AWS_REGION" \
             --instance-ids "$EC2_INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
             --comment "Policy QA deploy from GitHub Actions" \
-            --parameters "commands=${CMDS_JSON}" \
+            --parameters file://ssm-params.json \
             --timeout-seconds 600 \
             --query "Command.CommandId" \
             --output text)
 
           echo "SSM CommandId: $CMD_ID"
 
-          # Wait and print logs
+          # 4) Wait for completion and print logs
           aws ssm wait command-executed \
             --region "$AWS_REGION" \
             --command-id "$CMD_ID" \
