@@ -2,126 +2,137 @@
 from __future__ import annotations
 
 import os
-from typing import Iterable, Dict, List
+from typing import List, Dict
 
-from neo4j import GraphDatabase
-from neo4j.exceptions import ServiceUnavailable, ConfigurationError
+from dotenv import load_dotenv
 from neo4j import GraphDatabase
 
-# Removed erroneous driver initialization outside of class context.
 
 class Neo4jClient:
     """
-    Minimal helper for this project.
-    - Connects using env vars
-    - Ensures unique constraints
-    - Upserts a Doc node and its Chunk children
+    Thin wrapper around neo4j.Driver used by ingest.py and qa.py.
+    Expects the following env vars (a .env is fine):
+      - NEO4J_URI         e.g., neo4j+s://<id>.databases.neo4j.io
+      - NEO4J_USER        e.g., neo4j
+      - NEO4J_PASSWORD    e.g., ********
+      - NEO4J_DATABASE or NEO4J_DB (optional, defaults to 'neo4j')
     """
 
-    def __init__(self, uri: str | None = None, user: str | None = None,
-                 password: str | None = None, database: str | None = None,
-                 verbose: bool = True) -> None:
-        self.uri = uri or os.getenv("NEO4J_URI")
-        self.user = user or os.getenv("NEO4J_USER")
-        self.password = password or os.getenv("NEO4J_PASSWORD")
-        # Neo4j Aura uses 'neo4j' by default; we also respect NEO4J_DATABASE
-        self.database = database or os.getenv("NEO4J_DATABASE", "neo4j")
-        self.verbose = verbose
+    def __init__(self, verbose: bool = True) -> None:
+        load_dotenv()  # allow .env usage locally
 
-        if not (self.uri and self.user and self.password):
+        uri = os.getenv("NEO4J_URI")
+        user = os.getenv("NEO4J_USER")
+        pwd = os.getenv("NEO4J_PASSWORD")
+        db = (
+            os.getenv("NEO4J_DATABASE")
+            or os.getenv("NEO4J_DB")
+            or "neo4j"
+        )
+
+        if not uri or not user or not pwd:
             raise RuntimeError(
                 "[NEO4J] Missing NEO4J_URI/NEO4J_USER/NEO4J_PASSWORD in environment."
             )
 
-        if self.verbose:
+        self.uri = uri
+        self.user = user
+        self.database = db
+        self.driver = GraphDatabase.driver(self.uri, auth=(self.user, pwd))
+
+        # smoke-test the connection
+        with self.driver.session(database=self.database) as s:
+            s.run("RETURN 1").consume()
+
+        if verbose:
             print(f"[NEO4J] Connecting to {self.uri} as {self.user} (db={self.database}) ...")
+            print("[NEO4J] Connected ✅")
 
-        try:
-            self.driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
-            # sanity check
-            with self.driver.session(database=self.database) as s:
-                s.run("RETURN 1")
-            if self.verbose:
-                print("[NEO4J] Connected ✅")
-        except (ServiceUnavailable, ConfigurationError) as e:
-            raise RuntimeError(f"[NEO4J] Connection failed: {e}") from e
-
-        # Create constraints on first use
-        self.ensure_constraints()
-
-    # ---------------------------------------------------------------------
-
+    # ---------- convenience ----------
+    def session(self):
+        """Compatibility helper so callers can do n4j.session()."""
+        return self.driver.session(database=self.database)
+    
+    # ---------- lifecycle ----------
     def close(self) -> None:
-        if hasattr(self, "driver") and self.driver:
-            if self.verbose:
-                print("[NEO4J] Closing driver.")
+        try:
             self.driver.close()
+        except Exception:
+            pass
+        print("[NEO4J] Closing driver.")
 
-    # ---------------------------------------------------------------------
-
+    # ---------- schema ----------
     def ensure_constraints(self) -> None:
-        """Create id/file uniqueness once (no-op if they already exist)."""
-        if self.verbose:
-            print("[NEO4J] Ensuring constraints ...")
-
+        """
+        Create id/uniqueness constraints if they don't exist.
+        Aura supports IF NOT EXISTS; each executed as a separate query.
+        """
         stmts = [
-            # Unique doc by file
-            "CREATE CONSTRAINT doc_file IF NOT EXISTS FOR (d:Doc) REQUIRE d.file IS UNIQUE",
-            # Unique chunk by id
-            "CREATE CONSTRAINT chunk_id IF NOT EXISTS FOR (c:Chunk) REQUIRE c.id IS UNIQUE",
+            "CREATE CONSTRAINT file_name_unique IF NOT EXISTS "
+            "FOR (f:File) REQUIRE f.name IS UNIQUE",
+
+            "CREATE CONSTRAINT chunk_id_unique IF NOT EXISTS "
+            "FOR (c:Chunk) REQUIRE c.id IS UNIQUE",
         ]
         with self.driver.session(database=self.database) as s:
             for cypher in stmts:
                 s.run(cypher).consume()
+        print("[NEO4J] Ensuring constraints ...")
+        print("[NEO4J] Constraints ready.")
 
-        if self.verbose:
-            print("[NEO4J] Constraints ready.")
-
-    # ---------------------------------------------------------------------
-
-    def upsert_doc_with_chunks(self, file_name: str, chunks: Iterable[Dict[str, str]]) -> None:
+    # ---------- write: upsert a document and its chunks ----------
+    def upsert_doc_with_chunks(self, file_name: str, chunks: List[Dict[str, str]]) -> None:
         """
-        Ensure a (:Doc {file}) exists; upsert (:Chunk {id,text}) and (:Doc)-[:HAS_CHUNK]->(:Chunk).
-        Remove stale relationships to chunks no longer present for that file.
-        `chunks` must be an iterable of dicts with keys {'id','text'}.
+        Upsert a (:File{name}) and its (:Chunk{id,text}) with [:HAS_CHUNK] edges.
+        Also removes edges to chunks that are no longer in 'chunks'.
+        `chunks` is a list of dicts: [{"id": "...","text": "..."}, ...]
         """
-        # normalize to list
-        chunk_list: List[Dict[str, str]] = list(chunks)
-        ids = [c["id"] for c in chunk_list]
+        ids = [c["id"] for c in chunks]
 
         with self.driver.session(database=self.database) as s:
-            # 1) Ensure the Doc node exists
+            # Merge file node
             s.run(
-                """
-                MERGE (d:Doc {file: $file})
-                ON CREATE SET d.createdAt = timestamp()
-                """,
+                "MERGE (f:File {name: $file})",
                 file=file_name,
             ).consume()
 
-            # 2) Upsert each chunk node + relationship
+            # Upsert chunks and relationships
             s.run(
                 """
+                MATCH (f:File {name: $file})
                 UNWIND $rows AS row
                 MERGE (c:Chunk {id: row.id})
-                ON CREATE SET c.text = row.text, c.createdAt = timestamp()
-                ON MATCH  SET c.text = row.text
-                WITH c, row
-                MATCH (d:Doc {file: $file})
-                MERGE (d)-[:HAS_CHUNK]->(c)
+                SET c.text = row.text
+                MERGE (f)-[:HAS_CHUNK]->(c)
                 """,
                 file=file_name,
-                rows=chunk_list,
+                rows=chunks,
             ).consume()
 
-            # 3) Remove relationships to chunks that are no longer present
-            # (do NOT delete the chunks themselves, just detach from this Doc)
+            # Remove stale HAS_CHUNK edges for chunks not in 'ids'
             s.run(
                 """
-                MATCH (d:Doc {file: $file})-[r:HAS_CHUNK]->(c:Chunk)
+                MATCH (f:File {name: $file})-[r:HAS_CHUNK]->(c:Chunk)
                 WHERE NOT c.id IN $ids
                 DELETE r
                 """,
                 file=file_name,
                 ids=ids,
             ).consume()
+
+    # ---------- read: related chunks for a given file ----------
+    def expand_related_chunks(self, file_name: str, limit: int = 5) -> List[Dict[str, str]]:
+        """
+        Return up to `limit` chunks (id, text) related to the given file via [:HAS_CHUNK].
+        """
+        with self.driver.session(database=self.database) as s:
+            res = s.run(
+                """
+                MATCH (f:File {name: $file})-[:HAS_CHUNK]->(c:Chunk)
+                RETURN c.id AS id, c.text AS text
+                LIMIT $limit
+                """,
+                file=file_name,
+                limit=limit,
+            )
+            return [{"id": r["id"], "text": r["text"]} for r in res]

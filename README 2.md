@@ -7,6 +7,7 @@ https://browser.graphapp.io/
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=enter your password
 
+nslookup 37b30e3e.databases.neo4j.io
 
 # Neo4j Browser
 If you’re using Neo4j Aura, open the Neo4j browser:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import json
+import html
 import tempfile
 from typing import Dict, Any
 
@@ -25,8 +26,7 @@ with st.sidebar:
 # Session state
 # ---------------------------
 if "history" not in st.session_state:
-    # each turn: {user_text, assistant_text, assistant_struct}
-    st.session_state.history = []
+    st.session_state.history = []  # list of turns
 if "pending_audio_bytes" not in st.session_state:
     st.session_state.pending_audio_bytes = None
 
@@ -59,13 +59,19 @@ if use_mic:
         st.warning(f"Microphone unavailable ({e}).")
 
 # ---------------------------
+# Safe plain-text rendering (no Markdown interpretation)
+# ---------------------------
+def render_plain_text(s: str):
+    st.markdown(f"<div style='white-space:normal'>{html.escape(s)}</div>", unsafe_allow_html=True)
+
+# ---------------------------
 # Chat history renderer
 # ---------------------------
 def render_turn(turn: Dict[str, Any]):
     with st.chat_message("user"):
-        st.markdown(turn["user_text"])
+        render_plain_text(turn["user_text"])
     with st.chat_message("assistant"):
-        st.markdown(turn["assistant_text"])
+        render_plain_text(turn["assistant_text"])
         with st.expander("Details", expanded=False):
             model_json = turn.get("assistant_struct", {}).get("model_json", {})
             st.write("**Facts / Citations / Confidence**")
@@ -80,7 +86,6 @@ for t in st.session_state.history:
 # Helpers
 # ---------------------------
 def run_audio_query(audio_bytes: bytes) -> Dict[str, Any]:
-    """Save bytes to temp file, call pipeline, delete file."""
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
@@ -100,13 +105,12 @@ def run_text_query(text: str) -> Dict[str, Any]:
         return answer_query(query=text)
 
 # ---------------------------
-# Dispatch: audio first, then text input
+# Dispatch: audio first, then text
 # ---------------------------
-# If we have pending audio, process it and show the transcribed question as the user message
 if st.session_state.pending_audio_bytes:
     try:
         resp = run_audio_query(st.session_state.pending_audio_bytes)
-        user_text = resp.get("query", "_(voice message)_")  # show the transcribed question
+        user_text = resp.get("query", "_(voice message)_")  # transcribed question
         turn = {
             "user_text": user_text,
             "assistant_text": resp.get("unstructured", ""),
@@ -119,13 +123,12 @@ if st.session_state.pending_audio_bytes:
     finally:
         st.session_state.pending_audio_bytes = None
 
-# Text input (press Enter to send); show exactly what the user typed
 prompt = st.chat_input("Type your question and press Enter…")
 if prompt:
     try:
         resp = run_text_query(prompt)
         turn = {
-            "user_text": prompt,  # show typed question
+            "user_text": prompt,
             "assistant_text": resp.get("unstructured", ""),
             "assistant_struct": resp.get("structured", {}),
         }
