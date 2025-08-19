@@ -1,18 +1,17 @@
-name: Deploy to EC2 via ECR
+name: build-and-deploy
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
-
-env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}        # e.g. 3702600....amazonaws.com
-  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}    # e.g. policy/compliance-system
+  workflow_dispatch: {}
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
 
     steps:
       - name: Checkout
@@ -23,50 +22,46 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # Build from REPO ROOT (.) where Dockerfile lives
-      - name: Build Docker image
         run: |
-          set -e
-          IMAGE_NAME="${ECR_REGISTRY}/${ECR_REPOSITORY}"
-          SHA_TAG="${IMAGE_NAME}:sha-${GITHUB_SHA}"
-          LATEST_TAG="${IMAGE_NAME}:latest"
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
-          echo "Building ${SHA_TAG} from repo root"
-          docker build \
-            -t "${SHA_TAG}" \
-            -t "${LATEST_TAG}" \
-            .
-
-          echo "SHA_TAG=${SHA_TAG}" >> "$GITHUB_ENV"
-          echo "LATEST_TAG=${LATEST_TAG}" >> "$GITHUB_ENV"
-
-      - name: Push Docker image
+      - name: Build and push image
         run: |
-          set -e
-          docker push "${SHA_TAG}"
-          docker push "${LATEST_TAG}"
+          IMAGE="$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:sha-${GITHUB_SHA}"
+          LATEST="$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest"
+          docker build -t "$IMAGE" -t "$LATEST" .
+          docker push "$IMAGE"
+          docker push "$LATEST"
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
 
-      - name: Deploy on EC2
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            set -e
-            cd ~/policy-qa
-            # ensure .env exists and set IMAGE to the new tag
-            if [ ! -f .env ]; then touch .env; fi
-            if grep -q '^IMAGE=' .env; then
-              sed -i "s#^IMAGE=.*#IMAGE=${SHA_TAG}#" .env
-            else
-              echo "IMAGE=${SHA_TAG}" >> .env
-            fi
-            docker compose pull || true
-            docker compose up -d
-            docker image prune -f
+      - name: Deploy on EC2 via SSM (no SSH)
+        env:
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+        run: |
+          aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Policy QA deploy" \
+            --parameters commands="$(cat <<'EOS'
+          set -e
+          cd ~/policy-qa
+
+          # ensure .env exists and record IMAGE tag from the workflow
+          if [ ! -f .env ]; then touch .env; fi
+          if grep -q '^IMAGE=' .env; then
+            sed -i "s#^IMAGE=.*#IMAGE=${IMAGE}#" .env
+          else
+            echo "IMAGE=${IMAGE}" >> .env
+          fi
+
+          docker compose pull || true
+          docker compose up -d
+          docker image prune -f
+          EOS
+          )" \
+            --query "Command.CommandId" \
+            --output text
