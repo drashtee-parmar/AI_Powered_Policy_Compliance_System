@@ -1,4 +1,5 @@
 name: build-and-deploy
+
 on:
   push:
     branches: [ main ]
@@ -11,12 +12,11 @@ jobs:
       id-token: write
       contents: read
 
-    # ---- Everything we need pulled from Secrets you already created ----
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
-      ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}          
-      ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}      
-      EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}    
+      ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}          # e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com
+      ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}      # e.g. policy/compliance-system
+      EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
 
     steps:
       - name: Checkout
@@ -29,20 +29,18 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # ---- ECR login (produces the registry URL) ----
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # ---- Build & push (both a SHA tag and "latest") ----
       - name: Build and push image
         env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}   # same as ECR_REGISTRY
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}   # usually the same as ECR_REGISTRY
           REPO: ${{ env.ECR_REPOSITORY }}
         run: |
-          set -e
-          SHA_TAG="$REGISTRY/$REPO:sha-${GITHUB_SHA}"
-          LATEST_TAG="$REGISTRY/$REPO:latest"
+          set -euo pipefail
+          SHA_TAG="${REGISTRY}/${REPO}:sha-${GITHUB_SHA}"
+          LATEST_TAG="${REGISTRY}/${REPO}:latest"
 
           echo "Building $SHA_TAG and $LATEST_TAG ..."
           docker build -t "$SHA_TAG" -t "$LATEST_TAG" .
@@ -51,21 +49,19 @@ jobs:
           docker push "$SHA_TAG"
           docker push "$LATEST_TAG"
 
-          # make the resolved image (sha tag) available to later steps
-          echo "IMAGE=$SHA_TAG" >> $GITHUB_ENV
+          # make the resolved image available to next step
+          echo "IMAGE=$SHA_TAG" >> "$GITHUB_ENV"
 
-      # ---- Deploy on EC2 via SSM RunCommand (no SSH) ----
       - name: Deploy on EC2 (SSM)
         shell: bash
         env:
-          # IMAGE should have been set earlier in the job (the ECR image you just pushed)
-          IMAGE: ${{ env.IMAGE }}
-          EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+          IMAGE: ${{ env.IMAGE }}                # comes from previous step (GITHUB_ENV)
+          AWS_REGION: ${{ env.AWS_REGION }}
+          EC2_INSTANCE_ID: ${{ env.EC2_INSTANCE_ID }}
         run: |
           set -euo pipefail
 
-          # Ensure jq is available on the runner
+          # Ensure jq is present
           if ! command -v jq >/dev/null 2>&1; then
             sudo apt-get update -y
             sudo apt-get install -y jq
@@ -73,26 +69,23 @@ jobs:
 
           echo "Deploying IMAGE=${IMAGE} to instance ${EC2_INSTANCE_ID} (region ${AWS_REGION})"
 
-          # The exact shell script you want the instance to execute
-          # NOTE: we keep ${IMAGE} as a literal placeholder here and substitute below.
+          # Build the exact remote script (keep ${IMAGE} literal here)
           read -r -d '' SCRIPT <<'SCRIPT_EOF'
-      set -e
-      cd ~/policy-qa
-      touch .env
-      if grep -q ^IMAGE= .env; then
-        sed -i 's#^IMAGE=.*#IMAGE=${IMAGE}#' .env
-      else
-        echo "IMAGE=${IMAGE}" >> .env
-      fi
-      docker compose pull || true
-      docker compose up -d
-      docker image prune -f
-      SCRIPT_EOF
+set -e
+cd ~/policy-qa
+touch .env
+if grep -q ^IMAGE= .env; then
+  sed -i 's#^IMAGE=.*#IMAGE=${IMAGE}#' .env
+else
+  echo "IMAGE=${IMAGE}" >> .env
+fi
+docker compose pull || true
+docker compose up -d
+docker image prune -f
+SCRIPT_EOF
 
-          # Turn it into a JSON array of lines for SSM
+          # Convert to SSM JSON (array of lines), then substitute IMAGE safely
           CMDS_JSON=$(jq -Rn --arg s "$SCRIPT" '$s|split("\n")')
-
-          # Substitute the IMAGE value *after* JSON creation (safe)
           CMDS_JSON=${CMDS_JSON//'${IMAGE}'/"${IMAGE}"}
 
           # Send SSM command
@@ -108,7 +101,7 @@ jobs:
 
           echo "SSM CommandId: $CMD_ID"
 
-          # Wait for completion and show logs
+          # Wait and print logs
           aws ssm wait command-executed \
             --region "$AWS_REGION" \
             --command-id "$CMD_ID" \
