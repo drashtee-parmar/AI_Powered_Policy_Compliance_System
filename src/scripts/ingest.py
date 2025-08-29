@@ -19,12 +19,15 @@ import uuid
 import pickle
 import argparse
 from typing import List, Dict, Tuple
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import numpy as np
 import faiss
 from dotenv import load_dotenv
 from docx import Document
 from openai import OpenAI
+from aipc.qa import INDEX_PATH, META_PATH  # to keep in sync
 
 from neo4j_utils import Neo4jClient
 

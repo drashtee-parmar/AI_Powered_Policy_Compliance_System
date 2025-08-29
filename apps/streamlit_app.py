@@ -5,11 +5,12 @@ from doctest import debug
 import os
 import json
 import hashlib
+import html
 import tempfile
 from io import BytesIO
 import streamlit as st
 from PIL import Image, ImageDraw  # pip install pillow
-from qa import (
+from aipc.qa import (
     answer_query,
     clean_text_output,
 )  # your existing pipeline (Whisper when audio_path is provided)
@@ -115,15 +116,22 @@ def process_pending_audio():
                 pass
 
 
+# def render_chat():
+#     for m in st.session_state.messages:
+#         role = "user" if m["role"] == "user" else "assistant"
+#         avatar = USER_AVATAR if role == "user" else BOT_AVATAR
+#         with st.chat_message(role, avatar=avatar):
+#             # st.markdown(m["text"])
+#             st.markdown(clean_text_output(m["text"]))
+
 def render_chat():
     for m in st.session_state.messages:
         role = "user" if m["role"] == "user" else "assistant"
         avatar = USER_AVATAR if role == "user" else BOT_AVATAR
         with st.chat_message(role, avatar=avatar):
-            # st.markdown(m["text"])
-            st.markdown(clean_text_output(m["text"]))
-
-
+            # m["text"] was already sanitized in qa.py, but defensive escape is harmless
+            txt = m["text"]
+            st.markdown(f"<div style='white-space:pre-wrap'>{txt}</div>", unsafe_allow_html=True)
 # ------------------------------------------------------------
 # State init
 # ------------------------------------------------------------

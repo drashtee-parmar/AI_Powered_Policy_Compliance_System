@@ -9,18 +9,49 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from aipc.neo4j_utils import Neo4jClient
 
-_MD_SPECIALS = re.compile(r'([\\`*_{}$begin:math:display$$end:math:display$()#+\-!.|>])')  # escape for Markdown
 
 # ----------------------
 # Config
 # ----------------------
-INDEX_PATH = os.getenv("INDEX_PATH", "data/index/vector.index")
-META_PATH  = os.getenv("META_PATH",  "data/index/meta.pkl")
+INDEX_PATH = "vector.index"
+META_PATH = "meta.pkl"
 
 TOP_K = 5                   # vector hits to fetch
 GRAPH_EXPAND_PER_DOC = 1    # extra chunks per doc via Neo4j
 UI_CITATION_MAX = 3         # show at most this many unique citations by file
 
+
+# --- add near top of qa.py
+import html
+import re
+
+MD_CHARS = r"([\\`*_{}[\]()#+\-.!|>])"  # characters that trigger markdown
+
+def sanitize_for_display(s: str) -> str:
+    """Normalize whitespace & escape markdown/HTML so Streamlit shows plain text."""
+    if not s:
+        return s
+
+    # 1) collapse weird runs of slashes/backslashes that may appear
+    s = s.replace("\\\\", "\\")
+    s = s.replace("\u200b", "")  # zero-width spaces, just in case
+
+    # 2) normalize whitespace:
+    #    - turn any linebreak + indentation into a single space
+    s = re.sub(r"[ \t]*\n[ \t]*", " ", s)
+    #    - collapse multiple spaces
+    s = re.sub(r"[ \t]{2,}", " ", s)
+
+    # 3) ensure a space after punctuation if followed by a word/number
+    s = re.sub(r"([,.;:!?])([^\s])", r"\1 \2", s)
+
+    # 4) escape markdown metacharacters so Streamlit doesn't format them
+    s = re.sub(MD_CHARS, r"\\\1", s)
+
+    # 5) escape HTML too (we’ll render as HTML-safe text)
+    s = html.escape(s)
+
+    return s
 
 # ----------------------
 # Index & embeddings
@@ -314,8 +345,10 @@ def synthesize_answer(oai: OpenAI, query: str, contexts: List[Dict], model: str)
         except json.JSONDecodeError:
             parsed_json = {"_parse_error": True, "raw": json_block}
 
+    clean_text = sanitize_for_display((text_block or raw).strip())
+
     return {
-        "text": clean_text_output((text_block or raw).strip()),
+        "text": clean_text,
         "json": parsed_json,
         "citations": citations_for_ui,
     }
