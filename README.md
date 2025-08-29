@@ -139,12 +139,6 @@ LIMIT 5;
 - Ingestion supports `.txt/.md/.docx/.pdf` via `graph_rag_voice.loaders`.
 - Retrieval is graph-first with optional FAISS hybrid. Configure via `.env`.
 - Models: `gpt-4o-mini` (reasoning), `gpt-4o-transcribe` (STT), `text-embedding-3-small` (embeddings).
-# ========================
-
-pip install -r requirements.txt
-pip list
-
-# ====================
 ```
 Connection to 37b30e3e.databases.neo4j.io port 7687 [tcp/*] succeeded!
 # DNS/port reachability
