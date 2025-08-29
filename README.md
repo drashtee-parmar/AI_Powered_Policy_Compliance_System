@@ -115,6 +115,26 @@ uvicorn graph_rag_voice.app:app --reload --port 8000
 streamlit run streamlit_app.py
 ```
 
+# Neo4j Browser
+If you’re using Neo4j Aura, open the Neo4j browser:
+	•	Go to https://console.neo4j.io
+	•	Open the Browser for your database.
+	•	Run this Cypher:
+```
+// List all documents
+MATCH (d:Doc) RETURN d LIMIT 10;
+
+// Count all documents
+MATCH (d:Doc) RETURN count(d) AS docs;
+
+// Count all chunks
+MATCH (c:Chunk) RETURN count(c) AS chunks;
+
+// See one document with chunks
+MATCH (d:Doc)-[:HAS_CHUNK]->(c:Chunk)
+RETURN d.file AS document, collect(c.text)[0..3] AS sample_chunks
+LIMIT 5;
+```
 ## Notes
 - Ingestion supports `.txt/.md/.docx/.pdf` via `graph_rag_voice.loaders`.
 - Retrieval is graph-first with optional FAISS hybrid. Configure via `.env`.
