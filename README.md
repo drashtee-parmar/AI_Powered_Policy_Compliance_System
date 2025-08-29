@@ -1,12 +1,25 @@
 # AI_Powered_Policy_Compliance_System
 
+# neo4j 
+- neo4j start
+- http://localhost:7474/browser/ (login)
+- neo4j stop
 # installing virtual env
-- python -m venv venv
-- source venv/bin/activate
+```
+python3.11 -m venv .venv
+source .venv/bin/activate
+```
+
+## upgrade pip and install package
+```
+python -m pip install --upgrade pip setuptools wheel
+pip install numpy
+```
 
 # requirement.txt
-- after adding those version 
-- pip install -r requirements.txt
+```
+pip install -r requirements.txt
+```
 
 # Neo4j
 - brew services start neo4j
@@ -130,7 +143,8 @@ neo4j start
 neo4j stop
 
 # check the localhost
-http://localhost:7474
+<!-- http://localhost:7474 -->
+http://localhost:7687
 
 # check
 ```commandline
@@ -250,4 +264,6 @@ scp -i ~/.ssh/Policy-Compliance-Key.pem \
 
 
 
- http://3.81.105.216:8501
+
+
+

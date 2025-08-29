@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#14b8a6"          # teal (accents, buttons)
+backgroundColor = "#0f172a"       # deep navy background
+secondaryBackgroundColor = "#1e293b"  # softer panel contrast
+textColor = "#f1f5f9"             # light gray text
+font = "sans serif"
