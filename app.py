@@ -238,7 +238,19 @@ import sys
 
 from qa import answer_query
 
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return "Hello, World!"
+
+    
+    
 if __name__ == "__main__":
+    app.run(debug=True)
+
     p = argparse.ArgumentParser()
     p.add_argument("--query", type=str, help="Text question")
     p.add_argument("--audio", type=str, help="Path to audio file")

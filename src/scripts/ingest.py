@@ -219,7 +219,7 @@ def main(policies_dir: str = "policies") -> None:
 
     # Wrap up
     n4j.close()
-    print("[INGEST] DONE ✅")
+    print("[INGEST] DONE")
 
 
 if __name__ == "__main__":

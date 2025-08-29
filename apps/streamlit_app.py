@@ -1,6 +1,7 @@
 # ================================
 # code: streamlit_app.py
 # ================================
+from doctest import debug
 import os
 import json
 import hashlib
@@ -12,6 +13,7 @@ from qa import (
     answer_query,
     clean_text_output,
 )  # your existing pipeline (Whisper when audio_path is provided)
+
 
 
 # ------------------------------------------------------------

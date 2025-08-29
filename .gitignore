@@ -3,3 +3,22 @@
 .env1
 .pem
 .idea
+# Python
+__pycache__/
+*.pyc
+
+# venv
+.venv/
+
+# data artifacts
+data/index/*
+!data/index/.gitkeep
+
+# OS/IDE
+.DS_Store
+.idea/
+.vscode/
+
+# keys
+keys/*
+!keys/README.md
